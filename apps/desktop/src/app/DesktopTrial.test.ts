@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Executes raw Electron boot source in a VM with POSIX path fixtures.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
