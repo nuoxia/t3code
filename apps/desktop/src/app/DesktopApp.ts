@@ -1,3 +1,4 @@
+import { isDesktopTrial } from "./DesktopTrial.ts";
 import * as Cause from "effect/Cause";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
@@ -290,15 +291,16 @@ const bootstrap = Effect.fn("desktop.bootstrap")(function* (backendStarted: bool
   // Only the user's own login shell PATH shows every t3 a new terminal runs; a fresh install has
   // no cached one. Without it, the command is left to Settings.
   const installCli = (yield* DesktopCliCommand.DesktopCliCommand).installOnFirstLaunch;
-  yield* Effect.forkScoped(
-    (yield* DesktopShellEnvironment.DesktopShellEnvironment).awaitUserShellDiscovery.pipe(
-      Effect.flatMap((found) =>
-        found || environment.platform === "win32"
-          ? installCli
-          : logBootstrapInfo("skipped installing the t3 command without the shell PATH"),
+  if (!isDesktopTrial())
+    yield* Effect.forkScoped(
+      (yield* DesktopShellEnvironment.DesktopShellEnvironment).awaitUserShellDiscovery.pipe(
+        Effect.flatMap((found) =>
+          found || environment.platform === "win32"
+            ? installCli
+            : logBootstrapInfo("skipped installing the t3 command without the shell PATH"),
+        ),
       ),
-    ),
-  );
+    );
 
   if (!settings.localEnvironmentEnabled) {
     if (!(yield* Ref.get(state.quitting))) {

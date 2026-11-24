@@ -1,3 +1,4 @@
+import { isDesktopTrial } from "../app/DesktopTrial.ts";
 import {
   DesktopServerExposureModeSchema,
   DesktopUpdateChannelSchema,
@@ -190,6 +191,7 @@ export class DesktopAppSettings extends Context.Service<
 export function resolveDefaultDesktopSettings(appVersion: string): DesktopSettings {
   return {
     ...DEFAULT_DESKTOP_SETTINGS,
+    localEnvironmentEnabled: !isDesktopTrial(),
     updateChannel: desktopUpdateChannelOf(appVersion),
   };
 }
@@ -225,7 +227,8 @@ function normalizeDesktopSettingsDocument(
     (parsed.wslBackendEnabled === undefined && parsed.wslMode === "wsl");
 
   return {
-    localEnvironmentEnabled: parsed.localEnvironmentEnabled !== false,
+    localEnvironmentEnabled:
+      parsed.localEnvironmentEnabled ?? defaultSettings.localEnvironmentEnabled,
     linuxPasswordStore: normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore),
     mainWindowBounds,
     mainWindowMaximized: mainWindowBounds !== null && parsed.mainWindowMaximized === true,

@@ -104,6 +104,10 @@ export function createSidebarSortingStrategy(input: {
 }): SortingStrategy {
   if (input.enabled === false) return () => stationary;
   const { items } = input;
+  const fixedPrefixLength = Math.max(
+    0,
+    items.findIndex((item) => item.kind === "marker" && item.marker === "pinned-header"),
+  );
   const indices = new Map(items.map((item, index) => [sidebarListItemId(item), index]));
   let previous: Pick<Layout, "rects" | "activeIndex" | "overIndex"> | undefined;
   let transforms: ReturnType<SortingStrategy>[] | null = [];
@@ -125,6 +129,7 @@ export function createSidebarSortingStrategy(input: {
     let slimHeight = input.slimHeight;
     let headerScale: number | undefined;
     for (const [index, item] of items.entries()) {
+      if (index < fixedPrefixLength) continue;
       if (item.kind === "marker") {
         if (isShelfHeader(item)) {
           const height = rects[index]?.height;
@@ -216,11 +221,13 @@ export function createSidebarSortingStrategy(input: {
       shelfRect && beforeShelf && lastRect && shelfRect.top > beforeShelf.bottom + 1
         ? Math.max(
             0,
-            lastRect.bottom - rects[0].top - heights.reduce((sum, height) => sum + height + 1, -1),
+            lastRect.bottom -
+              rects[fixedPrefixLength]!.top -
+              heights.reduce((sum, height) => sum + height + 1, -1),
           )
         : 0;
-    const result = items.map(() => hidden);
-    let top = rects[0].top;
+    const result = items.map((_, index) => (index < fixedPrefixLength ? stationary : hidden));
+    let top = rects[fixedPrefixLength]!.top;
     for (const [projectedIndex, item] of projected.entries()) {
       if (isShelfHeader(item)) {
         top += shelfSpace;

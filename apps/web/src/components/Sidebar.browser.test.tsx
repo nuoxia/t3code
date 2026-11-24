@@ -8,6 +8,8 @@ import {
   EnvironmentId,
   ProjectId,
   ThreadId,
+  RunId,
+  ProviderInstanceId,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
@@ -132,6 +134,158 @@ function threadShell(projectId: ProjectId, index: number): EnvironmentThreadShel
     title: `Thread ${index}`,
   });
 }
+
+describe("sidebar live threads", () => {
+  it.each([400, 240])(
+    "keeps cross-project work fixed with independent scrolling at height %s",
+    async (height) => {
+      using stack = new DisposableStack();
+      const previousSettings = getClientSettings();
+      stack.defer(() => __setClientSettingsForTests(previousSettings));
+      __setClientSettingsForTests({
+        ...DEFAULT_CLIENT_SETTINGS,
+        boringSidebarEnabled: true,
+        sidebarWorkingShelfEnabled: false,
+      });
+      const style = document.createElement("style");
+      style.textContent = appCss;
+      document.head.append(style);
+      stack.defer(() => style.remove());
+      const projects = [project("first"), project("second")];
+      const runtime = {
+        status: "running" as const,
+        activeRunId: RunId.make("live-run"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        providerName: "Codex",
+        lastError: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const live = Array.from({ length: 12 }, (_, index) => ({
+        ...threadShell(projects[index % 2]!.id, index),
+        runtime,
+        pinnedAt: index === 0 ? "2026-01-01T00:00:00.000Z" : null,
+      }));
+      const pending = { ...threadShell(projects[1]!.id, 50), runtime, hasPendingUserInput: true };
+      const history = Array.from({ length: 30 }, (_, index) =>
+        threadShell(projects[index % 2]!.id, index + 100),
+      );
+      vi.mocked(useProjects).mockReturnValue(projects);
+      vi.mocked(useQuietThreadShells).mockReturnValue([...live, pending, ...history]);
+      vi.mocked(useThreadRouteTarget).mockReturnValue(null);
+      vi.mocked(useHandleNewThread).mockReturnValue({
+        activeDraftThread: null,
+        activeThread: null,
+        defaultProjectRef: null,
+        defaultProjectFallbackReady: true,
+        handleNewThread: vi.fn().mockResolvedValue(null),
+        routeDraftId: null,
+        routeThreadRef: null,
+      });
+      const tree = () => (
+        <SidebarProvider style={{ height, minHeight: height }}>
+          <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+        </SidebarProvider>
+      );
+      await using screen = await render(tree());
+      const fixed = screen.container.querySelector<HTMLElement>(
+        '[data-testid="sidebar-live-threads"]',
+      )!;
+      const running = screen.container.querySelector<HTMLElement>(
+        '[data-testid="sidebar-running-threads"]',
+      )!;
+      const needsYou = screen.container.querySelector<HTMLElement>(
+        '[data-testid="sidebar-needs-you-threads"]',
+      )!;
+      const viewport = fixed.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')!;
+      await vi.waitFor(() => expect(running.clientHeight).toBeGreaterThan(0));
+      expect(running.querySelectorAll("[data-thread-item]")).toHaveLength(12);
+      expect(needsYou.querySelectorAll("[data-thread-item]")).toHaveLength(1);
+      expect(screen.container.querySelectorAll("[data-thread-item]")).toHaveLength(43);
+      expect(running.scrollHeight).toBeGreaterThan(running.clientHeight);
+      const top = fixed.getBoundingClientRect().top;
+      await act(() => {
+        viewport.scrollTop = 150;
+      });
+      expect(viewport.scrollTop).toBeGreaterThan(0);
+      expect(fixed.getBoundingClientRect().top).toBeCloseTo(top, 0);
+      expect(fixed.getBoundingClientRect().height).toBeLessThan(viewport.clientHeight * 0.6);
+      const historyScroll = viewport.scrollTop;
+      await act(() => {
+        running.scrollTop = 100;
+      });
+      expect(running.scrollTop).toBeGreaterThan(0);
+      expect(viewport.scrollTop).toBe(historyScroll);
+
+      const historyRow = screen
+        .getByText("Thread 100", { exact: true })
+        .first()
+        .element()
+        .closest("[data-thread-item]")!
+        .querySelector<HTMLElement>("[data-sidebar-row]")!;
+      await act(() => {
+        viewport.scrollTop = viewport.scrollHeight;
+        historyRow.scrollIntoView({ block: "nearest" });
+      });
+      await vi.waitFor(() => {
+        expect(historyRow.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+          fixed.getBoundingClientRect().bottom,
+        );
+        expect(historyRow.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+          viewport.getBoundingClientRect().bottom,
+        );
+      });
+      const historyRows = [
+        ...screen.container.querySelectorAll<HTMLElement>("[data-sidebar-row]"),
+      ].filter((row) => row.dataset.sidebarParent?.startsWith("folder:"));
+      const nextRow = historyRows[historyRows.indexOf(historyRow) + 1]!;
+      await act(() => {
+        nextRow.focus({ preventScroll: true });
+        viewport.scrollTop = viewport.scrollHeight;
+      });
+      await userEvent.keyboard("{ArrowUp}");
+      expect(document.activeElement).toBe(historyRow);
+      await vi.waitFor(() => {
+        expect(historyRow.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+          fixed.getBoundingClientRect().bottom,
+        );
+        expect(historyRow.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+          viewport.getBoundingClientRect().bottom,
+        );
+      });
+
+      const finished = live.map((thread) => ({
+        ...thread,
+        runtime: { ...runtime, status: "completed" as const, activeRunId: null },
+      }));
+      vi.mocked(useQuietThreadShells).mockReturnValue([
+        ...finished,
+        { ...pending, runtime: null, hasPendingUserInput: false },
+        ...history,
+      ]);
+      await screen.rerender(tree());
+      expect(running.querySelectorAll("[data-thread-item]")).toHaveLength(0);
+      expect(needsYou.querySelectorAll("[data-thread-item]")).toHaveLength(0);
+      const rows = screen.container.querySelectorAll<HTMLElement>("[data-thread-item]");
+      expect(rows).toHaveLength(43);
+      const restoredPin = screen
+        .getByText("Thread 0", { exact: true })
+        .first()
+        .element()
+        .closest("[data-thread-item]")!;
+      expect(
+        restoredPin.querySelector('[aria-label="Unpin thread"], [aria-label="Pinned"]'),
+      ).not.toBeNull();
+      const restoredProject = screen
+        .getByText("Thread 1", { exact: true })
+        .first()
+        .element()
+        .closest("[data-thread-item]")!;
+      expect(
+        restoredProject.querySelector("[data-sidebar-parent]")?.getAttribute("data-sidebar-parent"),
+      ).toContain("folder:");
+    },
+  );
+});
 
 describe("sidebar render isolation", () => {
   // regression: #33100 Cmd+J re-rendered every sidebar row, which took hundreds of ms with many threads

@@ -1,3 +1,4 @@
+import { isDesktopTrial } from "./DesktopTrial.ts";
 import type {
   DesktopAppBranding,
   DesktopAppStageLabel,
@@ -104,9 +105,9 @@ export function resolveDesktopAppBranding(input: {
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
   return {
-    baseName: APP_BASE_NAME,
+    baseName: isDesktopTrial() ? "T3 Multi-Repo Trial" : APP_BASE_NAME,
     stageLabel,
-    displayName: `${APP_BASE_NAME} (${stageLabel})`,
+    displayName: isDesktopTrial() ? "T3 Multi-Repo Trial" : `${APP_BASE_NAME} (${stageLabel})`,
   };
 }
 

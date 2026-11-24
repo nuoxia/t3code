@@ -36,6 +36,7 @@ import {
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
   withoutRemovedCheckout,
+  resolveSidebarLiveSection,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -60,6 +61,48 @@ import {
 } from "./sidebar/routeReveal";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("sidebar live sections", () => {
+  it("moves active runs to Running, explicit requests to Needs you, and finished runs home", () => {
+    const thread = makeThreadFixture();
+    const runtime = {
+      status: "running" as const,
+      activeRunId: RunId.make("live-run"),
+      lastError: null,
+      providerName: "Codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    for (const status of ["preparing", "queued", "starting", "running", "waiting"] as const) {
+      expect(resolveSidebarLiveSection({ ...thread, runtime: { ...runtime, status } })).toBe(
+        "running",
+      );
+    }
+    for (const status of ["idle", "completed", "failed", "interrupted"] as const) {
+      expect(resolveSidebarLiveSection({ ...thread, runtime: { ...runtime, status } })).toBeNull();
+    }
+    expect(resolveSidebarLiveSection({ ...thread, runtime, hasPendingApprovals: true })).toBe(
+      "needs-you",
+    );
+    expect(resolveSidebarLiveSection({ ...thread, runtime, hasPendingUserInput: true })).toBe(
+      "needs-you",
+    );
+    expect(resolveSidebarLiveSection({ ...thread, runtime, pendingGuestMessageCount: 1 })).toBe(
+      "needs-you",
+    );
+    expect(
+      resolveSidebarLiveSection({
+        ...thread,
+        interactionMode: "plan",
+        hasActionableProposedPlan: true,
+      }),
+    ).toBe("needs-you");
+    expect(
+      resolveSidebarLiveSection({ ...thread, runtime, pinnedAt: "2026-01-01T00:00:00.000Z" }),
+    ).toBe("running");
+    expect(resolveSidebarLiveSection(thread)).toBeNull();
+  });
+});
 
 describe("deleteSelectedThreadEntries", () => {
   const entries = [{ threadKey: "one" }, { threadKey: "two" }, { threadKey: "three" }] as const;
@@ -1034,6 +1077,7 @@ describe("unseen completion with background work", () => {
       }),
     ).toBe(expected.receded);
     expect(isSidebarThreadWorking(thread)).toBe(expected.receded);
+    expect(resolveSidebarLiveSection(thread)).toBe(expected.receded ? "running" : null);
     expect(resolveThreadStatusPill({ thread })).toMatchObject({ label: expected.pill });
   });
 });
@@ -1169,6 +1213,18 @@ describe("Working shelf (beta)", () => {
         activeOrder: ["a1", "a2", "p1"],
       });
       expect(resolveSidebarDropVerb("active", "working")).toBeNull();
+      const liveFirst = [
+        row("w1", "working"),
+        ...items.filter((item) =>
+          item.kind === "thread" ? item.key !== "w1" : item.marker !== "working-header",
+        ),
+      ];
+      expect(resolveSidebarDropTarget(liveFirst, "a1", "w1")).toBeNull();
+      expect(resolveSidebarDropTarget(liveFirst, "p1", "a2")).toEqual({
+        section: "active",
+        pinnedOrder: [],
+        activeOrder: ["a1", "a2", "p1"],
+      });
     });
 
     it.each([

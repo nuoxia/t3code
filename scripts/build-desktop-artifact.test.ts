@@ -30,6 +30,7 @@ import {
   parseWslRuntimeArchiveMembers,
   readWorkspaceConfig,
   createBuildConfig,
+  resolveDesktopPackageIdentity,
   DESKTOP_FILE_EXCLUSIONS,
   InvalidMacPasskeyRpDomainError,
   InvalidMacPasskeyPublishableKeyError,
@@ -502,6 +503,48 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         assert.equal(yield* fs.readFileString(path.join(root, relativePath)), original);
       }
     }),
+  );
+
+  it("isolates the early Electron package identity while preserving the upstream manifest", () => {
+    assert.deepStrictEqual(resolveDesktopPackageIdentity(true), {
+      name: "t3code-multirepo-trial",
+      productName: "T3 Multi-Repo Trial",
+    });
+    assert.deepStrictEqual(resolveDesktopPackageIdentity(false), { name: "t3code" });
+  });
+
+  it.effect("isolates the opt-in macOS trial identity and external handlers", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "zip",
+        "0.1.9",
+        false,
+        true,
+        undefined,
+        undefined,
+      );
+      assert.equal(config.appId, "com.t3tools.t3code.multirepo-trial");
+      assert.equal(config.productName, "T3 Multi-Repo Trial");
+      assert.isNull(config.publish);
+      const mac = config.mac as {
+        protocols: unknown[];
+        extendInfo: { CFBundleDocumentTypes: unknown[] };
+      };
+      assert.deepStrictEqual(mac.protocols, []);
+      assert.deepStrictEqual(mac.extendInfo.CFBundleDocumentTypes, []);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: {
+              T3CODE_DESKTOP_TRIAL: "1",
+              GITHUB_REPOSITORY: "pingdotgg/t3code",
+            },
+          }),
+        ),
+      ),
+    ),
   );
 
   it.effect("omits update feeds for pull request preview builds", () =>

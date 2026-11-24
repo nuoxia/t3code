@@ -117,6 +117,20 @@ describe("DesktopClerk", () => {
     storageMock.mockReset();
   });
 
+  it.effect("does not create the protocol-registering Clerk bridge in trial", () =>
+    Effect.gen(function* () {
+      vi.stubEnv("T3CODE_DESKTOP_TRIAL", "1");
+      try {
+        yield* Effect.scoped(
+          Effect.service(DesktopClerk.DesktopClerk).pipe(Effect.provide(layerDesktopClerk(false))),
+        );
+        assert.equal(createClerkBridgeMock.mock.calls.length, 0);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }),
+  );
+
   it.each([
     {
       name: "packaged macOS",

@@ -220,6 +220,33 @@ describe("sidebar collision detection", () => {
 });
 
 describe("sidebar drag projection", () => {
+  it("keeps the fixed live prefix stationary while projecting history below it", () => {
+    const history = [
+      pinnedHeader,
+      thread("p", "pinned"),
+      divider,
+      thread("a", "active"),
+      thread("b", "active"),
+      settledHeader,
+      marker("settled-placeholder"),
+    ];
+    const options = { settledOrder: [], settledExpanded: false };
+    const baseline = preview({ ...options, items: history }, "a", "b");
+    const prefixed = preview(
+      {
+        ...options,
+        items: [thread("running", "working"), thread("needs-you", "working"), ...history],
+      },
+      "a",
+      "b",
+    );
+    expect(prefixed.get("running")).toEqual(stationary);
+    expect(prefixed.get("needs-you")).toEqual(stationary);
+    for (const item of history) {
+      const id = sidebarListItemId(item);
+      expect(prefixed.get(id)).toEqual(baseline.get(id));
+    }
+  });
   it.each([
     ["a2", "a1"],
     ["p", "a1"],
